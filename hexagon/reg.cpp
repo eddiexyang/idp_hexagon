@@ -93,7 +93,6 @@ Hexagon specific options
     }
 }
 
-#if IDA_SDK_VERSION >= 750
 static ssize_t idaapi notify( void*, int notification_code, va_list va );
 
 struct hexagon_t : public procmod_t
@@ -105,17 +104,14 @@ struct hexagon_t : public procmod_t
 };
 
 static int data_id;
-#endif
 
 static ssize_t idaapi notify( void*, int notification_code, va_list va )
 {
     switch( notification_code )
     {
-#if IDA_SDK_VERSION >= 750
     case processor_t::ev_get_procmod: {
         return size_t(SET_MODULE_DATA(hexagon_t));
     }
-#endif
     case processor_t::ev_set_idp_options: {
         auto keyword = va_arg( va, const char* );
         auto value_type = va_arg( va, int );
@@ -364,7 +360,6 @@ processor_t LPH = {
     PR_TYPEINFO |           // support the type system notifications
     PR_USE_ARG_TYPES,       // use processor_t::ev_use_arg_types callback
                             // flag2:
-    PR2_REALCVT |           // the module has 'realcvt' event implementation
     PR2_IDP_OPTS,           // the module has processor-specific configuration options
     8,                      // cnbits: 8 bits in a byte for code segments
     8,                      // dnbits: 8 bits in a byte for other segments

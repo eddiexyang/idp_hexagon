@@ -7,14 +7,14 @@ Features:
  * Supports Hexagon Matrix Extensions (HMX), V66 NN extensions
  * Supports all known instructions, including undocumented ones
  * Supports ELF relocations (both static and dynamic)
- * Supports IDA v7.0-8.3
+ * Supports IDA v7.0-9.1
 
 Information on instructions was mainly gathered from [LLVM](https://github.com/llvm/llvm-project/blob/main/llvm/lib/Target/Hexagon/HexagonDepInstrInfo.td), whereas missing system-level instructions were taken from Programmer's Reference Manual.
 
 
 Compilation
 -----------
-You will need the target IDA SDK ([7.0](https://hex-rays.com/products/ida/support/ida/idasdk70.zip), [7.2](https://hex-rays.com/products/ida/support/ida/idasdk72.zip), [7.3](https://hex-rays.com/products/ida/support/ida/idasdk73.zip), [7.5](https://hex-rays.com/products/ida/support/ida/idasdk75.zip), [7.6](https://hex-rays.com/products/ida/support/ida/idasdk76.zip), [7.7](https://hex-rays.com/products/ida/support/ida/idasdk77.zip), [8.3](https://hex-rays.com/products/ida/support/ida/idasdk_pro83.zip)) (password protected).  
+You will need the target IDA SDK.  
 You will also need a C++17 compiler, like Visual Studio 2015/2017/2022, or any recent GCC or Clang.
 
 Install target IDA SDK, copy `hexagon` folder into $SDK/module folder, and modify $SDK/module/makefile to include hexagon in `ALLDIRS`.  
@@ -88,3 +88,4 @@ History
 2023-06-26 added support for Hexagon v73; version 5.2 released  
 2024-05-21 added support for Hexagon v75, v77, v79; version 5.3 released  
 2024-05-22 added support for IDA v8.3; version 5.4 released  
+2025-07-11 added support for IDA v9.1; removed support for IDA versions <9.0; version 6.0 released

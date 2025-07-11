@@ -24,9 +24,7 @@ void out_footer( outctx_t &ctx )
 {
     qstring nbuf = get_colored_name( inf_get_start_ea() );
     const char *name = nbuf.c_str();
-#if IDA_SDK_VERSION >= 750
     asm_t &ash = ctx.ash;
-#endif
     const char *end = ash.end;
     if ( end == NULL )
         ctx.gen_printf( -1, COLSTR("%s end %s",SCOLOR_AUTOCMT), ash.cmnt, name );
@@ -43,8 +41,8 @@ static const char *ctrl_rn[32] = {
     /*  8 */ "usr",        "pc",         "ugp",        "gp",
     /* 12 */ "cs0",        "cs1",        "upcyclelo",  "upcyclehi",
     /* 16 */ "framelimit", "framekey",   "pktcountlo", "pktcounthi",
-    /* 20 */ NULL,         NULL,         NULL,         NULL,
-    /* 24 */ NULL,         NULL,         NULL,         NULL,
+    /* 20 */ "upmucnt0",   "upmucnt1",   "upmucnt2",   "upmucnt3",
+    /* 24 */ "upmucnt4",   "upmucnt5",   "upmucnt6",   "upmucnt7",
     /* 28 */ NULL,         NULL,         "utimerlo",   "utimerhi",
 };
 

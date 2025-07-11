@@ -27,19 +27,30 @@ enum {
     X26_MASK        = 0x0fff3fff,
 };
 
-// base address of small data area, used for GP-relative relocations
-static uint32_t _SDA_BASE_ = 0;
-// base address for thread-local relocations
-static uint32_t _TLS_START_ = 0;
-// address of global offset table
-static uint32_t _GOT_ = 0;
-// address of procedure linkage table
-static uint32_t _PLT_ = 0;
-// base address for message base optimization
-static uint32_t _MSG_BASE_ = 0;
+struct elf_hexagon_t : proc_def_t
+{
+    elf_hexagon_t(elf_loader_t &ldr, reader_t &r) : proc_def_t(ldr, r) {}
+    virtual const char *proc_handle_reloc(
+        const rel_data_t &rel_data,
+        const sym_rel *symbol,
+        const elf_rela_t *reloc,
+        reloc_tools_t *tools) override;
+    virtual const char *proc_describe_flag_bit(uint32 *e_flags) override;
+    virtual const char *proc_handle_dynamic_tag(const Elf64_Dyn *dyn) override;
+    // base address of small data area, used for GP-relative relocations
+    uint32_t _SDA_BASE_ = 0;
+    // base address for thread-local relocations
+    uint32_t _TLS_START_ = 0;
+    // address of global offset table
+    uint32_t _GOT_ = 0;
+    // address of procedure linkage table
+    uint32_t _PLT_ = 0;
+    // base address for message base optimization
+    uint32_t _MSG_BASE_ = 0;
+};
 
 // process e_flags field of ELF header
-static const char* proc_describe_flag_bit( proc_def_t* /*self*/, uint32 *e_flags )
+const char* elf_hexagon_t::proc_describe_flag_bit( uint32 *e_flags )
 {
     const char *opts = NULL;
     switch( *e_flags ) {
@@ -152,8 +163,7 @@ static uint32_t apply_mask( uint32_t v, uint32_t mask )
 //    without creating any table entries
 //
 
-static const char* proc_handle_reloc(
-    proc_def_t* /*self*/,
+const char* elf_hexagon_t::proc_handle_reloc(
     const rel_data_t &rel_data,
     const sym_rel *symbol,
     const elf_rela_t* /*reloc*/,
@@ -299,11 +309,7 @@ static const char* proc_handle_reloc(
     default: __fail:
         msg( "Couldn't relocate @0x%X: type=%2d, Sadd=0x%X, S=0x%X, symbol='%s'\n",
              rel_data.P, rel_data.type, rel_data.Sadd, rel_data.S,
-         #if IDA_SDK_VERSION == 700
-             symbol->original_name
-         #else
              symbol->original_name.c_str()
-         #endif
         );
         return E_RELOC_UNKNOWN;
     }
@@ -321,7 +327,7 @@ __fixup:
     return NULL; // ok
 }
 
-static const char* proc_handle_dynamic_tag( proc_def_t* /*self*/, const Elf64_Dyn *dyn )
+const char* elf_hexagon_t::proc_handle_dynamic_tag( const Elf64_Dyn *dyn )
 {
     switch( dyn->d_tag )
     {
@@ -331,93 +337,14 @@ static const char* proc_handle_dynamic_tag( proc_def_t* /*self*/, const Elf64_Dy
     return NULL;
 }
 
-#if IDA_SDK_VERSION < 750
-
-static const char* proc_flag( reader_t&, uint32 &e_flags )
-{
-    return proc_describe_flag_bit( NULL, &e_flags );
-}
-
-static const char* proc_relocation(
-    reader_t &/*reader*/,
-    const rel_data_t &rel_data,
-    const sym_rel *symbol,
-    const elf_rela_t *reloc,
-    reloc_tools_t *tools
-    )
-{
-    return proc_handle_reloc( NULL, rel_data, symbol, reloc, tools );
-}
-
-static const char* proc_dynamic_tag( reader_t &/*reader*/, const Elf64_Dyn *dyn )
-{
-    return proc_handle_dynamic_tag( NULL, dyn );
-}
-
-static proc_def_t hexagon_proc = {
-    0,
-    proc_relocation,            // proc_rel, must be implemented
-#if IDA_SDK_VERSION < 730
-    NULL,                       // proc_patch
-#else
-    NULL,                       // proc_bug_got
-    NULL,                       // proc_patch
-    NULL,                       // proc_pic_got
-#endif
-    proc_flag,                  // proc_flag
-    NULL,                       // stubname
-    NULL,                       // proc_sec_ext
-    NULL,                       // proc_sym_ext
-    proc_dynamic_tag,           // proc_dyn_ext
-    NULL,                       // proc_file_ext
-    NULL,                       // proc_start_ext
-    NULL,                       // proc_post_process
-    NULL,                       // proc_sym_init
-    NULL,                       // proc_sym_handle
-    0,                          // patch_mode (set by IDA)
-    0,                          // r_drop
-    0,                          // r_gotset
-    R_HEX_JMP_SLOT,             // r_err
-    R_HEX_GLOB_DAT,             // r_chk
-    { 0 },                      // relsyms (what do we put here?)
-    NULL,                       // proc_sect_check
-    NULL,                       // proc_sect_handle
-    NULL,                       // calc_procname
-    { 0 },                      // relsecord
-    NULL,                       // proc_entry_handle
-    { 0 },                      // additional_spec_secidx
-    0,                          // tls_tcb_size
-    0,                          // tls_tcb_align
-};
-
-// ELF loader machine type checkpoint
 ssize_t loader_elf_machine( linput_t*, int machine_type, const char**, proc_def_t **p_pd )
 {
     // tell ELF loader to use our mini-plugin for processor-specific stuff
     assert( machine_type == EM_QDSP6 );
-    *p_pd = &hexagon_proc;
-    return machine_type;
-}
-
-#else
-
-ssize_t loader_elf_machine( linput_t*, int machine_type, const char**, proc_def_t **p_pd )
-{
-    // tell ELF loader to use our mini-plugin for processor-specific stuff
-    assert( machine_type == EM_QDSP6 );
-    // as proc_def_t's functions are not exported, there are two options:
-    // a) manually re-implement all missing functions
-    // b) replace vft in the existing proc_def_t object at *p_pd
-
-    // ****** WARNING: dirty hack ******:
-    static uintptr_t vft[21];
-    memcpy( vft, **(uintptr_t***)p_pd, sizeof(vft) );
-    vft[2] = (uintptr_t) proc_handle_reloc;
-    vft[7] = (uintptr_t) proc_describe_flag_bit;
-    vft[9] = (uintptr_t) proc_handle_dynamic_tag;
-    **(uintptr_t***)p_pd = vft;
+    // replace proc_def_t
+    auto pd = new elf_hexagon_t( (*p_pd)->ldr, (*p_pd)->reader );
+    delete *p_pd;
+    *p_pd = pd;
 
     return machine_type;
 }
-
-#endif

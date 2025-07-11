@@ -12,9 +12,9 @@
 #define HIGH(range)                 (1? range)
 #define MASK(bits)                  ((1 << (bits)) - 1)
 #define BITS(range)                 ((word >> LOW(range)) & MASK(HIGH(range) - LOW(range) + 1))
-#define SBITS(range)                ((int32_t)(word << (31 - HIGH(range))) >> (31 - HIGH(range) + LOW(range)))
+#define SBITS(range)                (((int64_t)word << (63 - HIGH(range))) >> (63 - HIGH(range) + LOW(range)))
 #define BIT(bit)                    ((word >> (bit)) & 1)
-#define SBIT(bit)                   ((int32_t)(word << (31 - (bit))) >> 31)
+#define SBIT(bit)                   (((int64_t)word << (63 - (bit))) >> 63)
 #define SWAP(a, b)                  do { auto _tmp = (a); (a) = (b); (b) = _tmp; } while(0)
 
 #define DD                          (REG_DOUBLE << 0)
@@ -188,7 +188,7 @@ static void op_reg_off( op_t &op, uint32_t reg, uint32_t imm )
     op.dtype = dt_dword;
 }
 
-static void op_imm_ex( op_t &op, uint32_t imm, uint32_t flags )
+static void op_imm_ex( op_t &op, uval_t imm, uint32_t flags )
 {
     op.type = o_imm;
     op.value = imm;
@@ -196,7 +196,7 @@ static void op_imm_ex( op_t &op, uint32_t imm, uint32_t flags )
     op.specflag1 = flags; // IMM_XXX
 }
 
-static __inline void op_imm( op_t &op, uint32_t imm, bool _signed = false, bool extended = false )
+static __inline void op_imm( op_t &op, uval_t imm, bool _signed = false, bool extended = false )
 {
     op_imm_ex( op, imm, (_signed? IMM_SIGNED : 0) | (extended? IMM_EXTENDED : 0) );
 }
@@ -1510,11 +1510,11 @@ static uint32_t iclass_10_ST( uint32_t word, uint64_t extender, op_t *ops, uint3
     {
         // allocframe(Rx32,#Ii):raw
         if( REG_R(s5) == REG_SP ) { // simplify
-            op_imm( ops[0], BITS(10:0) << 3 );
+            op_imm( ops[0], EXTEND( BITS(10:0), 3 ), false, extended );
             return Hex_allocframe;
         } else {
             op_reg( ops[0], REG_R(s5) );
-            op_imm( ops[1], BITS(10:0) << 3 );
+            op_imm( ops[1], EXTEND( BITS(10:0), 3 ), false, extended );
             return Hex_allocframe_raw;
         }
     }
@@ -4594,8 +4594,8 @@ static void simplify( insn_t &insn )
             }
             else if( ops[0].specval == REG_DOUBLE &&
                      op1.type == o_imm && op2.type == o_imm && !(op2.specflag1 & IMM_EXTENDED) &&
-                     (op1.value == 0 && op2.value < 0x80000000 ||
-                      op1.value == -1 && op2.value >= 0x80000000) )
+                     (op1.value == 0 && op2.value < 0x800000000000ull ||
+                      op1.value == -1 && op2.value >= 0x800000000000ull) )
             {
                 // Rdd32 = combine(#{0|-1}, #s8)  -->  Rdd32 = #Ii
                 op1 = op2;

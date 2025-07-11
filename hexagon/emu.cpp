@@ -66,7 +66,7 @@ static void handle_insn( const insn_t &insn )
         if( ops[0].value == 0 && get_dword( insn.ea + insn.size ) == 0x901EC01E )
             break;
         if( pfn && may_trace_sp() )
-            add_auto_stkpnt( pfn, packet_end( insn ), -(ops[0].value + 8) );
+            add_auto_stkpnt( pfn, packet_end( insn ), -(sval_t)(ops[0].value + 8) );
         break;
 
     case Hex_add:
@@ -118,7 +118,7 @@ static void create_stack_spill_vars( func_t *pfn, ea_t target )
         for( int r = 16; r <= end; r++ )
         {
             str.sprnt( "saved_r%d", r );
-            define_stkvar( pfn, str.begin(), -4 - (r - 16) * 4, dword_flag(), NULL, 4 );
+            define_stkvar( pfn, str.begin(), -4 - (r - 16) * 4, tinfo_t( BTF_UINT32 ) );
         }
     }
 }
@@ -157,10 +157,14 @@ static void handle_operand( const insn_t &insn, const op_t &op )
             !is_defarg( F, op.n ) && get_func( insn.ea ) != NULL )
         {
             // make a stack variable for memX({sp|fp} + #I)
-            // NB: for vmem() the offset is in vector size units
+            // NB: for vmem() the offset is in vector size units (128)
             // unfortunately it produces wrong stack reference
             if( op.dtype == dt_byte64 )
-                define_stkvar( get_func( insn.ea ), NULL, -(int)op.addr * 128, byte_flag(), NULL, 128 );
+            {
+                tinfo_t tif;
+                tif.create_array( tinfo_t( BTF_UINT32 ), 32 );
+                define_stkvar( get_func( insn.ea ), NULL, -(int)op.addr * 128, tif );
+            }
             else if( insn.create_stkvar( op, op.addr, STKVAR_VALID_SIZE ) )
                 op_stkvar( insn.ea, op.n );
         }
@@ -309,7 +313,7 @@ static bool create_frame( const insn_t &insn, func_t *pfn )
         insn.ops[1].is_reg( REG_SP ) &&
         insn.ops[2].type == o_imm )
     {
-        add_frame( pfn, - insn.ops[2].value/*local size*/, 0/*saved size*/, 0/*argsize*/ );
+        add_frame( pfn, - (sval_t)insn.ops[2].value/*local size*/, 0/*saved size*/, 0/*argsize*/ );
         return true;
     }
     return false;
@@ -483,23 +487,6 @@ static bool idaapi is_stkarg_write( const insn_t &insn, int *src, int *dst )
     return true;
 }
 
-#if IDA_SDK_VERSION < 750
-
-void hex_use_arg_types( ea_t ea, func_type_data_t &fti, funcargvec_t &rargs )
-{
-    s_call_ea = ea;
-    // set ea to the end of the packet
-    ea = find_packet_end( ea );
-    gen_use_arg_tinfos(
-        ea, &fti, &rargs,
-        &set_op_type,
-        &is_stkarg_write,
-        NULL
-    );
-}
-
-#else
-
 struct hex_argtinfo_helper_t : argtinfo_helper_t
 {
     virtual bool idaapi set_op_tinfo(
@@ -530,8 +517,6 @@ void hex_use_arg_types( ea_t ea, func_type_data_t &fti, funcargvec_t &rargs )
     hex_argtinfo_helper_t hlp;
     hlp.use_arg_tinfos( ea, &fti, &rargs );
 }
-
-#endif
 
 int hex_use_regarg_type( ea_t ea, const funcargvec_t &rargs )
 {
@@ -578,205 +563,6 @@ int hex_use_regarg_type( ea_t ea, const funcargvec_t &rargs )
           -> 3
                -> 4
 */
-
-// unfortunately the jump_pattern_t API has changed between IDA versions
-#if IDA_SDK_VERSION == 700
-
-#undef JUMP_DEBUG
-#include "../jptcmn.cpp"
-
-struct hex_jump_pattern_t : public jump_pattern_t
-{
-    hex_jump_pattern_t( switch_info_t *_si ) : jump_pattern_t( _si, s_roots, s_depends )
-    {
-        allow_noflows = false;
-    }
-    enum { rA, rB, rT, rI, rP };
-    static constexpr char s_roots[] = { 1, 0 };
-    static constexpr char s_depends[][2] = {
-        { 1 },        // 0
-        { 2, 3 },     // 1
-        { 3, 4 },     // 2
-        { 0 },        // 3
-        { 0 },        // 4
-    };
-    virtual bool jpi4( void );
-    virtual bool jpi3( void );
-    virtual bool jpi2( void );
-    virtual bool jpi1( void );
-    virtual bool jpi0( void );
-    virtual bool handle_mov( void );
-    bool mov_set( uint32_t reg, const op_t &op );
-    bool mov_unset( const op_t &op, uint32_t reg );
-};
-
-bool hex_jump_pattern_t::jpi4( void )
-{
-    // (a) if (cmp.gtu(rI.new, #N)) jump:t default
-    if( insn.itype == Hex_jump &&
-        insn_predicate( insn ) == PRED_GTU &&
-        insn.ops[PRED_A].is_reg( r[rI] ) &&
-        insn.ops[PRED_B].type == o_imm )
-    {
-        si->ncases = insn.ops[PRED_B].value + 1;
-        si->defjump = insn.ops[0].addr;
-        return true;
-    }
-    // (b) p0 = cmp.gtu(rI, #N); if (p0.new) jump:nt default
-    if( insn.itype == Hex_cmp_jump &&
-        (insn_flags( insn ) & CMP_MASK) == CMP_GTU &&
-        insn.ops[1].is_reg( r[rI] ) &&
-        insn.ops[2].type == o_imm )
-    {
-        si->ncases = insn.ops[2].value + 1;
-        si->defjump = insn.ops[4].addr;
-        return true;
-    }
-    // (c) p0 = cmp.gtu(rI, #N)
-    if( insn.itype == Hex_cmp &&
-        (insn_flags( insn ) & CMP_MASK) == CMP_GTU &&
-        insn.ops[1].is_reg( r[rI] ) &&
-        insn.ops[2].type == o_imm )
-    {
-        r[rP] = insn.ops[0].reg;
-        si->ncases = insn.ops[2].value + 1;
-        // search for the default jump
-        ea_t ea = packet_start( insn ), end = eas[3];
-        insn_t temp;
-        while( ea < end && decode_insn( &temp, ea ) )
-        {
-            // if (p0.new) jump:nt default
-            if( temp.itype == Hex_jump &&
-                insn_predicate( temp ) == PRED_REG &&
-                temp.ops[PRED_A].is_reg( r[rP] ) &&
-                ((reg_op_flags( temp.ops[PRED_A] ) & REG_POST_NEW) != 0) ^ (temp.ea >= packet_end( insn )) )
-            {
-                si->defjump = insn.ops[0].addr;
-                break;
-            }
-            ea += temp.size;
-        }
-        return true;
-    }
-    return false;
-}
-
-bool hex_jump_pattern_t::jpi3( void )
-{
-    // rT = add(pc, ##table@pcrel)
-    if( insn_predicate( insn ) == 0 &&
-        insn.itype == Hex_add &&
-        insn.ops[0].is_reg( r[rT] ) &&
-        insn.ops[1].is_reg( REG_PC ) &&
-        insn.ops[2].type == o_imm )
-    {
-        si->jumps = insn.ops[2].value;
-        si->elbase = si->jumps;
-        si->flags |= SWI_ELBASE;
-        return true;
-    }
-    return false;
-}
-
-bool hex_jump_pattern_t::jpi2( void )
-{
-    // rB = memw(rT + rI<<#2)
-    if( insn_predicate( insn ) == 0 &&
-        insn.itype == Hex_mov &&
-        insn.ops[0].is_reg( r[rB] ) &&
-        insn.ops[1].type == o_mem_ind_off &&
-        (insn.ops[1].reg >> 8) == r[rT] &&
-        insn.ops[1].value == 2 )
-    {
-        r[rI] = insn.ops[1].reg & 0xFF;
-        // jump table contains dwords
-        si->set_jtable_element_size( 4 );
-        return true;
-    }
-    return false;
-}
-
-bool hex_jump_pattern_t::jpi1( void )
-{
-    // rA = add(rB, rT)
-    if( insn_predicate( insn ) == 0 &&
-        insn.itype == Hex_add &&
-        insn.ops[0].is_reg( r[rA] ) &&
-        insn.ops[1].type == o_reg &&
-        insn.ops[2].type == o_reg )
-    {
-        r[rB] = insn.ops[1].reg;
-        r[rT] = insn.ops[2].reg;
-        return true;
-    }
-    return false;
-}
-
-bool hex_jump_pattern_t::jpi0( void )
-{
-    // jumpr rA
-    // we already checked conditions in handle_insn()
-    r[rA] = insn.ops[0].reg;
-    return true;
-}
-
-bool hex_jump_pattern_t::handle_mov( void )
-{
-    // track register movement
-    if( insn.itype != Hex_mov /*|| insn_predicate( insn )*/ )
-        return false;
-
-    // stack load?
-    const op_t *ops = insn.ops;
-    if( ops[1].type == o_displ && ops[1].reg == REG_SP )
-        return mov_set( ops[0].reg, ops[1] );
-    // stack store?
-    else if( ops[0].type == o_displ && ops[0].reg == REG_SP &&
-             ops[1].type == o_reg )
-        return mov_unset( ops[0], ops[1].reg );
-
-    return false;
-}
-
-bool hex_jump_pattern_t::mov_set( uint32_t reg, const op_t &op )
-{
-    // fixed version of jump_pattern_t::mov_set()
-    bool found = false;
-    for( int i = 0; i < _countof(r); i++ )
-    {
-        if( r[i] == reg && !spoiled[i] )
-        {
-            r_moved[i] = op;
-            spoiled[i] = true;
-            found = true;
-        }
-    }
-    return found;
-}
-
-bool hex_jump_pattern_t::mov_unset( const op_t &op, uint32_t reg )
-{
-    // reverses the effect of mov_set()
-    bool found = false;
-    for( int i = 0; i < _countof(r_moved); i++ )
-    {
-        if( is_same( op, i ) )
-        {
-            r[i] = reg;
-            spoiled[i] = false;
-            found = true;
-        }
-    }
-    return found;
-}
-
-static jump_table_type_t is_jump_pattern( switch_info_t *si, const insn_t &insn )
-{
-    hex_jump_pattern_t jp( si );
-    return jp.match( insn )? JT_FLAT32 : JT_NONE;
-}
-
-#elif IDA_SDK_VERSION >= 720
 
 #include "jumptable.hpp"
 
@@ -972,19 +758,11 @@ bool hex_jump_pattern_t::equal_ops( const op_t &x, const op_t &y ) const
     return false;
 }
 
-#if IDA_SDK_VERSION < 750
-static int is_jump_pattern( switch_info_t *si, const insn_t &insn )
-#else
 static int is_jump_pattern( switch_info_t *si, const insn_t &insn, procmod_t* /*procmod*/ )
-#endif
 {
     hex_jump_pattern_t jp( si );
     return jp.match( insn )? JT_SWITCH : JT_NONE;
 }
-
-#else
-#error Your SDK version is not supported...
-#endif
 
 static bool hex_is_switch( const insn_t &insn, switch_info_t *si )
 {
