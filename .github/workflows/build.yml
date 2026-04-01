@@ -21,10 +21,6 @@ jobs:
             generator: Ninja
             cmake_extra: ""
             artifact: hexagon-macos-arm64
-          - os: macos-13
-            generator: Ninja
-            cmake_extra: ""
-            artifact: hexagon-macos-x64
           - os: ubuntu-latest
             generator: Ninja
             cmake_extra: ""
