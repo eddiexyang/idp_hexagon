@@ -144,10 +144,10 @@ static uint32_t new_value( uint32_t nt, bool hvx = false )
     // TODO: check if duplexes have to be supported
     {
         const op_t *op = temp.ops;
-        assert( op->type == o_reg );
+        if( op->type != o_reg ) goto __cleanup;
         if( !hvx )
         {
-            assert( (nt & 1) == 0 );
+            if( nt & 1 ) goto __cleanup;
             result = op->reg;
         }
         else // hvx
