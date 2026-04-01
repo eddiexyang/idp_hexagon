@@ -3,6 +3,7 @@ name: Build
 on:
   push:
     branches: [master]
+    tags: ["v*"]
   workflow_dispatch:
 
 env:
@@ -82,3 +83,31 @@ jobs:
         with:
           name: ${{ matrix.artifact }}
           path: out/
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Package release assets
+        run: |
+          cd artifacts
+          for dir in */; do
+            name="${dir%/}"
+            (cd "$name" && zip -r "../../${name}.zip" .)
+          done
+
+      - name: Create or update release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest Build
+          files: "*.zip"
+          prerelease: true
+          make_latest: true
