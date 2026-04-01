@@ -5,6 +5,9 @@ on:
     branches: [master]
   workflow_dispatch:
 
+env:
+  IDASDK_DIR: idasdk
+
 jobs:
   build:
     strategy:
@@ -14,37 +17,35 @@ jobs:
             generator: "Visual Studio 17 2022"
             cmake_extra: "-A x64"
             artifact: hexagon-windows
-            ext: dll
           - os: macos-latest
             generator: Ninja
             cmake_extra: ""
             artifact: hexagon-macos-arm64
-            ext: dylib
           - os: macos-13
             generator: Ninja
             cmake_extra: ""
             artifact: hexagon-macos-x64
-            ext: dylib
           - os: ubuntu-latest
             generator: Ninja
             cmake_extra: ""
             artifact: hexagon-linux
-            ext: so
 
     runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: hexagon-src
 
       - name: Clone IDA SDK
-        run: git clone --recursive --depth 1 https://github.com/HexRaysSA/ida-sdk.git /tmp/idasdk
+        shell: bash
+        run: git clone --recursive --depth 1 https://github.com/HexRaysSA/ida-sdk.git ${{ env.IDASDK_DIR }}
 
       - name: Inject hexagon module
         shell: bash
         run: |
-          cp -r hexagon /tmp/idasdk/src/module/hexagon
-          # append hexagon to module CMakeLists.txt
-          echo 'add_subdirectory(hexagon)' >> /tmp/idasdk/src/module/CMakeLists.txt
+          cp -r hexagon-src/hexagon ${{ env.IDASDK_DIR }}/src/module/hexagon
+          echo 'add_subdirectory(hexagon)' >> ${{ env.IDASDK_DIR }}/src/module/CMakeLists.txt
 
       - name: Setup Visual Studio
         if: runner.os == 'Windows'
@@ -63,22 +64,22 @@ jobs:
           sudo apt-get install -y ninja-build
 
       - name: Configure
-        working-directory: /tmp/idasdk/src
         shell: bash
+        working-directory: ${{ env.IDASDK_DIR }}/src
         env:
-          IDASDK: /tmp/idasdk
+          IDASDK: ${{ github.workspace }}/${{ env.IDASDK_DIR }}
         run: cmake -B build -G "${{ matrix.generator }}" ${{ matrix.cmake_extra }}
 
       - name: Build hexagon module
-        working-directory: /tmp/idasdk/src
         shell: bash
+        working-directory: ${{ env.IDASDK_DIR }}/src
         run: cmake --build build --target hexagon --config Release --parallel
 
       - name: Collect artifacts
         shell: bash
         run: |
           mkdir -p out
-          find /tmp/idasdk/src/bin -name "hexagon*" -type f -exec cp {} out/ \;
+          find ${{ env.IDASDK_DIR }}/src/bin -name "hexagon*" -type f -exec cp {} out/ \;
           ls -la out/
 
       - uses: actions/upload-artifact@v4
