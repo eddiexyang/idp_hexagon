@@ -1,0 +1,87 @@
+name: Build
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            generator: "Visual Studio 17 2022"
+            cmake_extra: "-A x64"
+            artifact: hexagon-windows
+            ext: dll
+          - os: macos-latest
+            generator: Ninja
+            cmake_extra: ""
+            artifact: hexagon-macos-arm64
+            ext: dylib
+          - os: macos-13
+            generator: Ninja
+            cmake_extra: ""
+            artifact: hexagon-macos-x64
+            ext: dylib
+          - os: ubuntu-latest
+            generator: Ninja
+            cmake_extra: ""
+            artifact: hexagon-linux
+            ext: so
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone IDA SDK
+        run: git clone --recursive --depth 1 https://github.com/HexRaysSA/ida-sdk.git /tmp/idasdk
+
+      - name: Inject hexagon module
+        shell: bash
+        run: |
+          cp -r hexagon /tmp/idasdk/src/module/hexagon
+          # append hexagon to module CMakeLists.txt
+          echo 'add_subdirectory(hexagon)' >> /tmp/idasdk/src/module/CMakeLists.txt
+
+      - name: Setup Visual Studio
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install Ninja (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+
+      - name: Configure
+        working-directory: /tmp/idasdk/src
+        shell: bash
+        env:
+          IDASDK: /tmp/idasdk
+        run: cmake -B build -G "${{ matrix.generator }}" ${{ matrix.cmake_extra }}
+
+      - name: Build hexagon module
+        working-directory: /tmp/idasdk/src
+        shell: bash
+        run: cmake --build build --target hexagon --config Release --parallel
+
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          mkdir -p out
+          find /tmp/idasdk/src/bin -name "hexagon*" -type f -exec cp {} out/ \;
+          ls -la out/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: out/
